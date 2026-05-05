@@ -63,25 +63,41 @@ public:
     * @brief Get a batch of floats in an array container
     * The number of floats is the SIMD register size in bits / 32. 
     * AVX512 uses 512 bit registers, so batch size is 512/32 = 16.
-    * @return std::array<double, BATCH_SIZE> 
+    * @return std::array<float, BATCH_SIZE> 
     */
    std::array<float, BATCH_SIZE> getBatchFloats() {
       if constexpr (I == InstructionSet::AVX256) {
          __m256i avx_a = _mm256_load_epi32(a_states.data());
          __m256i avx_b = _mm256_load_epi32(b_states.data());
          __m256i mult = _mm256_set1_epi32(0x9E3779BB);
-         const __m256i result = _mm256_mullo_epi32(avx_a, mult);
+         __m256i result = _mm256_mullo_epi32(avx_a, mult);
 
          avx_b = _mm256_xor_si256(avx_a, avx_b);
          avx_a = rotl(avx_a, 26);
          avx_a = _mm256_xor_si256(avx_a, avx_b);
          avx_a = _mm256_xor_si256(avx_a, _mm256_slli_epi32(avx_b, 9));
-
          avx_b = rotl(avx_b, 13);
          
          _mm256_store_epi32(a_states.data(), avx_a);
          _mm256_store_epi32(b_states, avx_b);
+      
+         // Need to convert result into a [0, 1) float
+         // bit shift 9 to the right to get rid of sign + 8 bit exponent
+         result = _mm256_srli_epi32(result, 9);
 
+         // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
+         // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
+         // if we have 2^n = 1, then number = 1 + mantissa = [1, 2), 
+         // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
+         // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
+         // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
+         const __m256i sign_exp_set = _mm256_set1_epi32(0x3F800000);
+         result = _mm256_xor_epi32(result, sign_exp_set);
+
+         // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
+         __m256 sub1 = _mm256_set1_ps(1.0f);
+         __m256 floats = _mm256_add_ps(_mm256_castsi256_ps(result), sub1);
+         return std::bit_cast<std::array<float, BATCH_SIZE>>(floats);
       }
       else if constexpr(I == InstructionSet::AVX512) {
 
