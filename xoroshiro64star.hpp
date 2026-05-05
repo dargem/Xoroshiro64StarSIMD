@@ -71,10 +71,6 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
       return _mm256_slli_epi32(a, bits);
    }
 
-   static __mi _mm_set1_ps(float val) {
-      return _mm256_set1_ps(val);
-   }
-
    static __mi _mm_set1_epi32(int val) {
       return _mm256_set1_epi32(val);
    }
@@ -87,18 +83,29 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
       return _mm256_xor_si256(a, b);
    }
 
-   // Float ops
+   static __mi _mm_or_si(__mi a, __mi b) {
+      return _mm256_or_si256(a, b);
+   }
+
    static void _mm_store_si(__mi* mem_addr, __mi source) {
       _mm256_store_si256(mem_addr, source);
    }
 
+
+   // Float ops
    static __m _mm_sub_ps(__m a, __m b) {
       return _mm256_sub_ps(a, b);
    }
 
+   static __m _mm_set1_ps(float val) {
+      return _mm256_set1_ps(val);
+   }
+
+   static __m _mm_castsi_ps(__mi a) {
+      return _mm256_castsi256_ps(a);
+   }
 
 
- 
 };
 
 template <>
@@ -117,10 +124,12 @@ template <InstructionSet I = InstructionSet::AVX256>
 class alignas(RegisterByteSize<I>) XoroshiroRNG {
 private:
    constexpr static size_t REGISTER_BYTE_SIZE = RegisterByteSize<I>;
+   using S = InstructionSetTraits<I>;
+   using __m = S::__m;
+   using __mi = S::__mi;
 public:
    constexpr static size_t ELEMENT_SIZE = sizeof(float);
    constexpr static size_t BATCH_SIZE = REGISTER_BYTE_SIZE / ELEMENT_SIZE;
-public:
 
    XoroshiroRNG() {
       // do something actually correct later just slop this for now
@@ -142,11 +151,11 @@ public:
    std::array<float, BATCH_SIZE> getBatchFloats() {
       if constexpr (I == InstructionSet::AVX256) {
 
-         __m256i result = advance();
+         __mi result = advance();
 
          // Need to convert result into a [0, 1) float
          // bit shift 9 to the right to get rid of sign + 8 bit exponent
-         result = _mm256_srli_epi32(result, 9);
+         result = S::_mm_srli_epi32(result, 9);
 
          // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
          // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
@@ -154,12 +163,13 @@ public:
          // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
          // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
          // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
-         const __m256i sign_exp_set = _mm256_set1_epi32(0x3F800000);
-         result = _mm256_xor_epi32(result, sign_exp_set);
+         const __mi sign_exp_set = S::_mm_set1_epi32(0x3F800000);
+         result = S::_mm_xor_si(result, sign_exp_set);
 
          // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
-         __m256 one = _mm256_set1_ps(1.0f);
-         __m256 floats = _mm256_sub_ps(_mm256_castsi256_ps(result), one);
+         __m one = S::_mm_set1_ps(1.0f);
+         __m floats = S::_mm_sub_ps(_mm_castsi_ps(result), one);
+
          return std::bit_cast<std::array<float, BATCH_SIZE>>(floats);
       }
       else if constexpr(I == InstructionSet::AVX512) {
