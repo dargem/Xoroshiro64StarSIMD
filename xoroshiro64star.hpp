@@ -66,7 +66,26 @@ public:
     * @return std::array<double, BATCH_SIZE> 
     */
    std::array<float, BATCH_SIZE> getBatchFloats() {
-      return std::array<float, BATCH_SIZE>();
+      if constexpr (I == InstructionSet::AVX256) {
+         __m256i avx_a = _mm256_load_epi32(a_states.data());
+         __m256i avx_b = _mm256_load_epi32(b_states.data());
+         __m256i mult = _mm256_set1_epi32(0x9E3779BB);
+         const __m256i result = _mm256_mullo_epi32(avx_a, mult);
+
+         avx_b = _mm256_xor_si256(avx_a, avx_b);
+         avx_a = rotl(avx_a, 26);
+         avx_a = _mm256_xor_si256(avx_a, avx_b);
+         avx_a = _mm256_xor_si256(avx_a, _mm256_slli_epi32(avx_b, 9));
+
+         avx_b = rotl(avx_b, 13);
+         
+         _mm256_store_epi32(a_states.data(), avx_a);
+         _mm256_store_epi32(b_states, avx_b);
+
+      }
+      else if constexpr(I == InstructionSet::AVX512) {
+
+      }
    };
 
    /**
@@ -92,8 +111,16 @@ public:
    }
 
 private:
-   std::array<uint32_t, BATCH_SIZE> a_states;
-   std::array<uint32_t, BATCH_SIZE> b_states;
+   // SOA style layout, BATCH_SIZE number of simultaneous RNGs, state split across 2 arrays
+   alignas(REGISTER_BYTE_SIZE) std::array<uint32_t, BATCH_SIZE> a_states;
+   alignas(REGISTER_BYTE_SIZE) std::array<uint32_t, BATCH_SIZE> b_states;
+
+   __m256i rotl(__m256i x, const int k) {
+      return _mm256_or_si256(
+         _mm256_slli_epi32(x, k), 
+         _mm256_srli_epi32(x, 32 - k)
+      );
+   }
 };
 
 
@@ -101,12 +128,15 @@ static inline uint32_t rotl(const uint32_t x, int k) {
 	return (x << k) | (x >> (32 - k));
 }
 
+
+
 static uint32_t s[2];
 
 uint32_t next(void) {
 	const uint32_t s0 = s[0];
 	uint32_t s1 = s[1];
 	const uint32_t result = s0 * 0x9E3779BB;
+
 
 	s1 ^= s0;
 	s[0] = rotl(s0, 26) ^ s1 ^ (s1 << 9); // a, b
