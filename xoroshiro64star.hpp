@@ -48,9 +48,69 @@ enum class InstructionSet {
    AVX512
 };
 
-// kinda hard coded can add more options later if more instructions are added
 template <InstructionSet I>
-static constexpr size_t RegisterByteSize = (I == InstructionSet::AVX256 ? 256 / 8 : 512 / 8);
+struct InstructionSetTraits;
+
+template<>
+struct InstructionSetTraits<InstructionSet::AVX256> {
+   static constexpr size_t bits = 256;
+
+   using __mi = __m256i;
+   using __m = __m256;
+
+   // Integer ops
+   static __mi _mm_load_si(__mi const* mem_addr) {
+      return _mm256_load_si256(mem_addr);
+   }
+
+   static __mi _mm_srli_epi32(__mi a, int bits) {
+      return _mm256_srli_epi32(a, bits);
+   }
+
+   static __mi _mm_slli_epi32(__mi a, int bits) {
+      return _mm256_slli_epi32(a, bits);
+   }
+
+   static __mi _mm_set1_ps(float val) {
+      return _mm256_set1_ps(val);
+   }
+
+   static __mi _mm_set1_epi32(int val) {
+      return _mm256_set1_epi32(val);
+   }
+
+   static __mi _mm_mullo_epi32(__mi a, __mi b) {
+      return _mm256_mullo_epi32(a, b);
+   }
+
+   static __mi _mm_xor_si(__mi a, __mi b) {
+      return _mm256_xor_si256(a, b);
+   }
+
+   // Float ops
+   static void _mm_store_si(__mi* mem_addr, __mi source) {
+      _mm256_store_si256(mem_addr, source);
+   }
+
+   static __m _mm_sub_ps(__m a, __m b) {
+      return _mm256_sub_ps(a, b);
+   }
+
+
+
+ 
+};
+
+template <>
+struct InstructionSetTraits<InstructionSet::AVX512> {
+    static constexpr size_t bits = 512;
+};
+
+template <InstructionSet I>
+inline constexpr size_t RegisterBitSize = InstructionSetTraits<I>::bits;
+
+template <InstructionSet I>
+inline constexpr size_t RegisterByteSize = RegisterBitSize<I> / 8;
 
 // Change the defaulted instruction set to select it
 template <InstructionSet I = InstructionSet::AVX256>
@@ -78,6 +138,7 @@ public:
     * AVX512 uses 512 bit registers, so batch size is 512/32 = 16.
     * @return std::array<float, BATCH_SIZE> 
     */
+   [[nodiscard]]
    std::array<float, BATCH_SIZE> getBatchFloats() {
       if constexpr (I == InstructionSet::AVX256) {
 
@@ -107,6 +168,7 @@ public:
    
    }
 
+   [[nodiscard]]
    std::array<uint32_t, BATCH_SIZE> getBatchInts() {
       return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(advance());   
    }
@@ -118,6 +180,7 @@ public:
     * You are likely not using AVX256 which is the problem if you get a warning.
     * @return std::array<float, 8> container holding the random numbers
     */
+   [[nodiscard]]
    std::array<float, 8> get_eight_floats() requires (BATCH_SIZE == 8) {
       return getBatchFloats();
    }
@@ -129,6 +192,7 @@ public:
     * You are likely not using AVX512 which is the problem if you get a warning.
     * @return std::array<float, 16> container holding the random numbers
     */
+    [[nodiscard]]
    std::array<float, 16> get_sixteen_floats() requires (BATCH_SIZE == 16) {
       return getBatchFloats();
    }
@@ -138,10 +202,16 @@ private:
    alignas(REGISTER_BYTE_SIZE) std::array<uint32_t, BATCH_SIZE> a_states;
    alignas(REGISTER_BYTE_SIZE) std::array<uint32_t, BATCH_SIZE> b_states;
 
+   /**
+    * @brief Advances each nested RNG one state forward
+    * 
+    * @return __m(register_size)i of result register
+    */
+   [[nodiscard]]
    auto advance() {
       if constexpr (I == InstructionSet::AVX256) {
-         __m256i avx_a = _mm256_load_epi32(a_states.data());
-         __m256i avx_b = _mm256_load_epi32(b_states.data());
+         __m256i avx_a = _mm256_load_si256(reinterpret_cast<const __m256i*>(a_states.data()));
+         __m256i avx_b = _mm256_load_si256(reinterpret_cast<const __m256i*>(b_states.data()));
          __m256i mult = _mm256_set1_epi32(0x9E3779BB);
          __m256i result = _mm256_mullo_epi32(avx_a, mult);
 
@@ -151,8 +221,8 @@ private:
          avx_a = _mm256_xor_si256(avx_a, _mm256_slli_epi32(avx_b, 9));
          avx_b = rotl(avx_b, 13);
          
-         _mm256_store_epi32(a_states.data(), avx_a);
-         _mm256_store_epi32(b_states.data(), avx_b);
+         _mm256_store_si256(reinterpret_cast<__m256i*>(a_states.data()), avx_a);
+         _mm256_store_si256(reinterpret_cast<__m256i*>(b_states.data()), avx_b);
 
          return result;
       }
