@@ -60,7 +60,7 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
    using __m = __m256;
 
    // Integer ops
-   template <int b> // needs a compile time constant
+   template <int byte_shift> // needs a compile time constant
    static __mi rol_epi32(__mi a) { 
       #if defined (__AVX512F__)
          // this 256 bit register instruction is actually from the AVX512 instruction set
@@ -68,8 +68,8 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
       #else
          // if we do not have the AVX512 instruction set default back to our 256 "emulation"
          return or_si(
-            slli_epi32(a, b), 
-            srli_epi32(a, 32 - b)
+            slli_epi32(a, byte_shift), 
+            srli_epi32(a, 32 - byte_shift)
          );
       #endif
    }
@@ -84,6 +84,13 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
    static __mi or_si(__mi a, __mi b) { return _mm256_or_si256(a, b); }
    static void store_si(__mi* mem_addr, __mi source) { _mm256_store_si256(mem_addr, source); }
    static __mi load_si(__mi const* mem_addr) { return _mm256_load_si256(mem_addr); }
+
+   // Lane ops, SIMD registers are made up of 128 bit lanes
+   // crossing lanes is pricy so mixing is done inside these lanes
+   template <int byte_shift>
+   static __mi bsrli_epi128(__mi a) { return _mm256_bsrli_epi128(a, byte_shift); }
+   template <int byte_shift>
+   static __mi bslli_epi128(__mi a) { return _mm256_bslli_epi128(a, byte_shift); }   
 
    // Float ops
    static __m sub_ps(__m a, __m b) { return _mm256_sub_ps(a, b); }
@@ -113,6 +120,13 @@ struct InstructionSetTraits<InstructionSet::AVX512> {
    static __mi or_si(__mi a, __mi b) { return _mm512_or_si512(a, b); }
    static void store_si(__mi* mem_addr, __mi source) { _mm512_store_si512(mem_addr, source); }
    static __mi load_si(const __mi* mem_addr) { return _mm512_load_si512(mem_addr); }
+
+   // Lane ops, SIMD registers are made up of 128 bit lanes
+   // crossing lanes is pricy so mixing is done inside these lanes
+   template <int byte_shift>
+   static __mi bsrli_epi128(__mi a) { return _mm512_bsrli_epi128(a, byte_shift); }
+   template <int byte_shift>
+   static __mi bslli_epi128(__mi a) { return _mm512_bslli_epi128(a, byte_shift); }   
 
    // Float ops
    static __m sub_ps(__m a, __m b) { return _mm512_sub_ps(a, b); }
