@@ -54,6 +54,7 @@ struct InstructionSetTraits;
 template<>
 struct InstructionSetTraits<InstructionSet::AVX256> {
    static constexpr size_t bits = 256;
+   static constexpr size_t bytes = bits / 8;
 
    using __mi = __m256i;
    using __m = __m256;
@@ -79,6 +80,7 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
 template<>
 struct InstructionSetTraits<InstructionSet::AVX512> {
    static constexpr size_t bits = 512;
+   static constexpr size_t bytes = bits / 8;
 
    using __mi = __m512i;
    using __m = __m512;
@@ -101,32 +103,36 @@ struct InstructionSetTraits<InstructionSet::AVX512> {
    static __m _mm_castsi_ps(__mi a) { return _mm512_castsi512_ps(a); }
 };
 
-template <InstructionSet I>
-inline constexpr size_t RegisterBitSize = InstructionSetTraits<I>::bits;
-
-template <InstructionSet I>
-inline constexpr size_t RegisterByteSize = RegisterBitSize<I> / 8;
+static inline uint64_t splitmix64_next(uint64_t& x)
+{
+   // http://xorshift.di.unimi.it/splitmix64.c
+   uint64_t z = (x += 0x9e3779b97f4a7c15);
+   z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
+   z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
+   return z ^ (z >> 31);
+}
 
 // Change the defaulted instruction set to select it
 template <InstructionSet I>
-class alignas(RegisterByteSize<I>) XoroshiroRNG {
+class alignas(InstructionSetTraits<I>::bytes) XoroshiroRNG {
 private:
-   constexpr static size_t REGISTER_BYTE_SIZE = RegisterByteSize<I>;
    using S = InstructionSetTraits<I>;
    using __m = S::__m;
    using __mi = S::__mi;
+   constexpr static size_t REGISTER_BYTE_SIZE = S::bytes;
 public:
    constexpr static size_t ELEMENT_SIZE = sizeof(float);
    constexpr static size_t BATCH_SIZE = REGISTER_BYTE_SIZE / ELEMENT_SIZE;
 
-   XoroshiroRNG() {
-      // do something actually correct later just slop this for now
-      std::random_device rd;
-      std::mt19937 gen(rd());
-      std::uniform_int_distribution<uint32_t> distr(std::numeric_limits<uint32_t>::min(), std::numeric_limits<uint32_t>::max());
+   XoroshiroRNG(uint32_t seed = 0xcafef00dU) {
 
-      for (uint32_t& a : a_states) { a = distr(gen); }
-      for (uint32_t& b : b_states) { b = distr(gen); }
+      uint64_t sm = 0xfeedfacecafebeefULL ^ uint64_t(seed);
+
+      for (size_t i{}; i < BATCH_SIZE; ++i) {
+         a_states[i] = splitmix64_next(sm);
+         b_states[i] = splitmix64_next(sm);
+      }
+
    }
 
    /**
@@ -162,6 +168,7 @@ public:
 
    [[nodiscard]]
    std::array<uint32_t, BATCH_SIZE> getBatchInts() {
+
       return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(advance());   
    }
 
@@ -205,6 +212,7 @@ private:
       __mi avx_b = S::_mm_load_si(reinterpret_cast<const __mi*>(b_states.data()));
       __mi mult = S::_mm_set1_epi32(0x9E3779BB);
       __mi result = S::_mm_mullo_epi32(avx_a, mult);
+      // __mi result = avx_a;
 
       avx_b = S::_mm_xor_si(avx_a, avx_b);
       avx_a = rotl(avx_a, 26);
