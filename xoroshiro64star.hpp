@@ -61,16 +61,30 @@ struct InstructionSetTraits<InstructionSet::AVX128> {
    using __m = __m128;
 
    // Integer ops
-   template <int byte_shift>
+   template <int bit_shift>
    static __mi rol_epi32(__mi a) { 
       #if defined (__AVX512F__)
          // this 128 bit register instruction is actually from the AVX512 instruction set
-         return _mm_rol_epi32(a, byte_shift); 
+         return _mm_rol_epi32(a, bit_shift); 
       #else
          // if we do not have the AVX512 instruction set default back to our 128 "emulation"
          return or_si(
-            slli_epi32(a, byte_shift), 
-            srli_epi32(a, 32 - byte_shift)
+            slli_epi32(a, bit_shift), 
+            srli_epi32(a, 32 - bit_shift)
+         );
+      #endif
+   }
+
+   template <int bit_shift>
+   static __mi rol_epi64(__mi a) { 
+      #if defined (__AVX512F__)
+         // this 128 bit register instruction is actually from the AVX512 instruction set
+         return _mm_rol_epi64(a, bit_shift); 
+      #else
+         // if we do not have the AVX512 instruction set default back to our 128 "emulation"
+         return or_si(
+            slli_epi64(a, bit_shift), 
+            srli_epi64(a, 64 - bit_shift)
          );
       #endif
    }
@@ -79,6 +93,8 @@ struct InstructionSetTraits<InstructionSet::AVX128> {
    static __mi slli_epi32(__mi a, int bits) { return _mm_slli_epi32(a, bits); }
    static __mi set1_epi32(int val) { return _mm_set1_epi32(val); }
    static __mi mullo_epi32(__mi a, __mi b) { return _mm_mullo_epi32(a, b); }
+   static __mi srli_epi64(__mi a, int bits) { return _mm_srli_epi64(a, bits); }
+   static __mi slli_epi64(__mi a, int bits) { return _mm_slli_epi64(a, bits); }
 
    // Bit ops
    static __mi xor_si(__mi a, __mi b) { return _mm_xor_si128(a, b); }
@@ -118,16 +134,30 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
    using __m = __m256;
 
    // Integer ops
-   template <int byte_shift>
+   template <int bit_shift>
    static __mi rol_epi32(__mi a) { 
       #if defined (__AVX512F__)
          // this 256 bit register instruction is actually from the AVX512 instruction set
-         return _mm256_rol_epi32(a, byte_shift); 
+         return _mm256_rol_epi32(a, bit_shift); 
       #else
          // if we do not have the AVX512 instruction set default back to our 256 "emulation"
          return or_si(
-            slli_epi32(a, byte_shift), 
-            srli_epi32(a, 32 - byte_shift)
+            slli_epi32(a, bit_shift), 
+            srli_epi32(a, 32 - bit_shift)
+         );
+      #endif
+   }
+
+   template <int bit_shift>
+   static __mi rol_epi64(__mi a) { 
+      #if defined (__AVX512F__)
+         // this 256 bit register instruction is actually from the AVX512 instruction set
+         return _mm256_rol_epi64(a, bit_shift); 
+      #else
+         // if we do not have the AVX512 instruction set default back to our 256 "emulation"
+         return or_si(
+            slli_epi64(a, bit_shift), 
+            srli_epi64(a, 64 - bit_shift)
          );
       #endif
    }
@@ -136,6 +166,8 @@ struct InstructionSetTraits<InstructionSet::AVX256> {
    static __mi slli_epi32(__mi a, int bits) { return _mm256_slli_epi32(a, bits); }
    static __mi set1_epi32(int val) { return _mm256_set1_epi32(val); }
    static __mi mullo_epi32(__mi a, __mi b) { return _mm256_mullo_epi32(a, b); }
+   static __mi srli_epi64(__mi a, int bits) { return _mm256_srli_epi64(a, bits); }
+   static __mi slli_epi64(__mi a, int bits) { return _mm256_slli_epi64(a, bits); }
 
    // Bit ops
    static __mi xor_si(__mi a, __mi b) { return _mm256_xor_si256(a, b); }
@@ -174,13 +206,20 @@ struct InstructionSetTraits<InstructionSet::AVX512> {
    using __m = __m512;
 
    // Integer ops
-   template <int byte_shift> // needs a compile time constant
-   static __mi rol_epi32(__mi a) { return _mm512_rol_epi32(a, byte_shift); }
+   template <int bit_shift> // needs a compile time constant
+   static __mi rol_epi32(__mi a) { return _mm512_rol_epi32(a, bit_shift); }
+
+   template <int bit_shift> // needs a compile time constant
+   static __mi rol_epi64(__mi a) { return _mm512_rol_epi64(a, bit_shift); }
+
    static __mi srli_epi32(__mi a, int bits) { return _mm512_srli_epi32(a, bits); }
    static __mi slli_epi32(__mi a, int bits) { return _mm512_slli_epi32(a, bits); }
 
    static __mi set1_epi32(int val) { return _mm512_set1_epi32(val); }
    static __mi mullo_epi32(__mi a, __mi b) { return _mm512_mullo_epi32(a, b); }
+
+   static __mi srli_epi64(__mi a, int bits) { return _mm512_srli_epi64(a, bits); }
+   static __mi slli_epi64(__mi a, int bits) { return _mm512_slli_epi64(a, bits); }
 
    // Bit ops
    static __mi xor_si(__mi a, __mi b) { return _mm512_xor_si512(a, b); }
@@ -254,7 +293,7 @@ public:
    [[nodiscard]]
    std::array<float, BATCH_SIZE> getBatchFloats() {
 
-      __mi result = advance();
+      __mi result = cross_advance();
 
       // Need to convert result into a [0, 1) float
       // bit shift 9 to the right to get rid of sign + 8 bit exponent
@@ -279,7 +318,7 @@ public:
    [[nodiscard]]
    std::array<uint32_t, BATCH_SIZE> getBatchInts() {
 
-      return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(advance());   
+      return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(cross_advance());   
    }
 
    /**
@@ -328,6 +367,32 @@ private:
       avx_a = _mm::xor_si(avx_a, avx_b);
       avx_a = _mm::xor_si(avx_a, _mm::slli_epi32(avx_b, 9));
       avx_b = _mm::template rol_epi32<13>(avx_b);
+      
+      _mm::store_si(reinterpret_cast<__mi*>(a_states.data()), avx_a);
+      _mm::store_si(reinterpret_cast<__mi*>(b_states.data()), avx_b);
+
+      return result;
+   }
+
+   /**
+    * @brief Advances each nested RNG one state forward.
+    * This is a modified version that uses light inter rng mixing
+    * 
+    * @return __m(register_size)i of result register
+    */
+   [[nodiscard]] 
+   auto cross_advance() {
+      __mi avx_a = _mm::load_si(reinterpret_cast<const __mi*>(a_states.data()));
+      __mi avx_b = _mm::load_si(reinterpret_cast<const __mi*>(b_states.data()));
+      __mi mult = _mm::set1_epi32(0x9E3779BB);
+      __mi result = _mm::mullo_epi32(avx_a, mult);
+
+      // Interprets the 32 bit RNG "lanes" as 64 bit ones for light mixing
+      avx_b = _mm::xor_si(avx_a, avx_b);
+      avx_a = _mm::template rol_epi64<26>(avx_a);
+      avx_a = _mm::xor_si(avx_a, avx_b);
+      avx_a = _mm::xor_si(avx_a, _mm::slli_epi64(avx_b, 9));
+      avx_b = _mm::template rol_epi64<13>(avx_b);
       
       _mm::store_si(reinterpret_cast<__mi*>(a_states.data()), avx_a);
       _mm::store_si(reinterpret_cast<__mi*>(b_states.data()), avx_b);
