@@ -98,14 +98,14 @@ int main(int argc, char** argv) {
         const uint64_t remainder = count % kBatch;
 
         for (uint64_t i = 0; i < fullBatches; ++i) {
-            const auto v = simd.get_batch_ints();
+            const auto v = simd.get_batch_uint32();
             for (size_t j = 0; j < v.size(); ++j) {
                 sum += v[j];
             }
         }
 
         if (remainder != 0) {
-            const auto v = simd.get_batch_ints();
+            const auto v = simd.get_batch_uint32();
             for (uint64_t j = 0; j < remainder; ++j) {
                 sum += v[static_cast<size_t>(j)];
             }

@@ -127,6 +127,7 @@ struct InstructionSetTraits<InstructionSet::AVX128> {
    static __m sub_ps(__m a, __m b) { return _mm_sub_ps(a, b); }
    static __m set1_ps(float val) { return _mm_set1_ps(val); }
    static __m castsi_ps(__mi a) { return _mm_castsi128_ps(a); }
+   // static void store_si(__mi* mem_addr, __mi source) { _mm_store_si128(mem_addr, source); }
 };
 #endif
 
@@ -263,8 +264,7 @@ struct InstructionSetTraits<InstructionSet::AVX512> {
 };
 #endif
 
-static inline uint64_t splitmix64_next(uint64_t& x)
-{
+static inline uint64_t splitmix64_next(uint64_t& x) {
    // http://xorshift.di.unimi.it/splitmix64.c
    uint64_t z = (x += 0x9e3779b97f4a7c15);
    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
@@ -310,7 +310,7 @@ public:
    /**
     * @brief Get a batch of floats in an array container
     * The number of floats is the SIMD register size in bits / 32. 
-    * AVX512 uses 512 bit registers, so batch size is 512/32 = 16.
+    * AVX512 uses 512 bit registers, so batch size is 512 / 32 = 16.
     * @return std::array<float, BATCH_SIZE> 
     */
    [[nodiscard]]
@@ -338,10 +338,66 @@ public:
       return std::bit_cast<std::array<float, BATCH_SIZE>>(floats);
    }
 
-   [[nodiscard]]
-   std::array<uint32_t, BATCH_SIZE> get_batch_ints() {
+   /**
+    * @brief Get a batch of floats written into a given address
+    * 
+    * @param dst The destination, POINTER MUST BE ALIGNED TO YOUR SIMD REGISTER SIZE
+    */
+   void get_aligned_batch_floats(float* dst) {
+      // This is necessary to do a faster load instruction since we don't need to worry about alignment
+      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
 
+      __mi result = cross_advance();
+
+      // Need to convert result into a [0, 1) float
+      // bit shift 9 to the right to get rid of sign + 8 bit exponent
+      result = _mm::srli_epi32(result, 9);
+
+      // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
+      // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
+      // if we have 2^n = 1, then number = 1 + mantissa = [1, 2), 
+      // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
+      // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
+      // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
+      const __mi sign_exp_set = _mm::set1_epi32(0x3F800000);
+      result = _mm::xor_si(result, sign_exp_set);
+
+      // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
+      __m one = _mm::set1_ps(1.0f);
+      __m floats = _mm::sub_ps(_mm::castsi_ps(result), one);
+
+      _mm::store_si(reinterpret_cast<__mi*>(dst), reinterpret_cast<__mi>(floats));
+   }
+
+   /**
+    * @brief Get a batch of uint32_t's in an array container
+    * The number of ints is the SIMD register size in bits / 32. 
+    * AVX512 uses 512 bit registers, so batch size is 512 / 32 = 16.
+    * @return std::array<int, BATCH_SIZE> 
+    */
+   [[nodiscard]]
+   std::array<uint32_t, BATCH_SIZE> get_batch_uint32() {
       return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(cross_advance());   
+   }
+   
+   /**
+    * @brief Fill an array with uint32_t's
+    * 
+    * @param ptr Start address
+    * @param num_elements Number of uint32_t's to fill it with 
+    */
+   void fill_uint32(int* dest, size_t num_elements) {
+      size_t i{};
+      
+      // // Fill all elements up to num_elements % BATCH_SIZE using the simple SIMD impl
+      // for (; i < num_elements; i += BATCH_SIZE) {
+      //    std::memcpy(dest, &())
+      // }
+
+      // // 
+      // while (i < num_elements) {
+
+      // }
    }
 
 private:
