@@ -114,8 +114,5 @@ int main(int argc, char** argv) {
         return sum;
     });
 
-    (void)scalarResult;
-    (void)simdResult;
-
     return 0;
 }

@@ -40,8 +40,7 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 #include <array>
 #include <cassert>
 #include <immintrin.h>
-#include <random>
-#include <limits>
+#include <cstring>
 
 enum class InstructionSet {
    NONE,
@@ -291,11 +290,12 @@ private:
    using _mm = InstructionSetTraits<SIMD_INSTRUCTION_SET>;
    using __m = _mm::__m;
    using __mi = _mm::__mi;
-   constexpr static size_t REGISTER_BYTE_SIZE = _mm::bytes;
 public:
+   constexpr static size_t REGISTER_BYTE_SIZE = _mm::bytes;
    constexpr static size_t ELEMENT_SIZE = sizeof(float);
    constexpr static size_t BATCH_SIZE = REGISTER_BYTE_SIZE / ELEMENT_SIZE;
 
+   
    XoroshiroRNG(uint32_t seed = 0xcafef00dU) {
 
       uint64_t sm = 0xfeedfacecafebeefULL ^ uint64_t(seed);
@@ -339,37 +339,6 @@ public:
    }
 
    /**
-    * @brief Get a batch of floats written into a given address
-    * 
-    * @param dst The destination, POINTER MUST BE ALIGNED TO YOUR SIMD REGISTER SIZE
-    */
-   void get_aligned_batch_floats(float* dst) {
-      // This is necessary to do a faster load instruction since we don't need to worry about alignment
-      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
-
-      __mi result = cross_advance();
-
-      // Need to convert result into a [0, 1) float
-      // bit shift 9 to the right to get rid of sign + 8 bit exponent
-      result = _mm::srli_epi32(result, 9);
-
-      // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
-      // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
-      // if we have 2^n = 1, then number = 1 + mantissa = [1, 2), 
-      // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
-      // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
-      // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
-      const __mi sign_exp_set = _mm::set1_epi32(0x3F800000);
-      result = _mm::xor_si(result, sign_exp_set);
-
-      // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
-      __m one = _mm::set1_ps(1.0f);
-      __m floats = _mm::sub_ps(_mm::castsi_ps(result), one);
-
-      _mm::store_si(reinterpret_cast<__mi*>(dst), reinterpret_cast<__mi>(floats));
-   }
-
-   /**
     * @brief Get a batch of uint32_t's in an array container
     * The number of ints is the SIMD register size in bits / 32. 
     * AVX512 uses 512 bit registers, so batch size is 512 / 32 = 16.
@@ -383,22 +352,30 @@ public:
    /**
     * @brief Fill an array with uint32_t's
     * 
-    * @param ptr Start address
+    * @param dst Start address, must be aligned to your SIMD register size
     * @param num_elements Number of uint32_t's to fill it with 
     */
-   void fill_uint32(int* dest, size_t num_elements) {
-      size_t i{};
-      
-      // // Fill all elements up to num_elements % BATCH_SIZE using the simple SIMD impl
-      // for (; i < num_elements; i += BATCH_SIZE) {
-      //    std::memcpy(dest, &())
-      // }
+   void fill_aligned_uint32(uint32_t* dst, size_t num_elements) {
+      // This is necessary to do a faster load instruction since we don't need to worry about alignment
+      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
 
-      // // 
-      // while (i < num_elements) {
+      uint32_t* end = dst + num_elements;
 
-      // }
+      // We want the aligned end to fill in batches until we reach that
+      size_t remainder_bytes = reinterpret_cast<uintptr_t>(end) % REGISTER_BYTE_SIZE;
+      uint32_t* aligned_end = end - remainder_bytes / sizeof(uint32_t);
+
+      // Fill all elements up to the SIMD registers boundary
+      for (; dst < aligned_end; dst += BATCH_SIZE) {
+         __mi result = cross_advance();
+         _mm::store_si(reinterpret_cast<__mi*>(dst), result);
+      }
+
+      // Now we have to fill the remainders
+      __mi buffer = cross_advance();
+      std::memcpy(dst, &buffer, remainder_bytes);
    }
+   
 
 private:
    // SOA style layout, BATCH_SIZE number of simultaneous RNGs, state split across 2 arrays
@@ -443,6 +420,7 @@ private:
       __mi result = _mm::mullo_epi32(avx_a, mult);
 
       // Interprets the 32 bit RNG "lanes" as 64 bit ones for light mixing
+      // This results in it being able to fully pass the normal Crush test from TestU01
       avx_b = _mm::xor_si(avx_a, avx_b);
       avx_a = _mm::template rol_epi64<26>(avx_a);
       avx_a = _mm::xor_si(avx_a, avx_b);
@@ -461,5 +439,36 @@ private:
          _mm::slli_epi32(x, k), 
          _mm::srli_epi32(x, 32 - k)
       );
+   }
+
+   /**
+    * @brief Get a batch of floats written into a given address
+    * 
+    * @param dst The destination, POINTER MUST BE ALIGNED TO YOUR SIMD REGISTER SIZE
+    */
+   void get_aligned_batch_floats(float* dst) {
+      // This is necessary to do a faster load instruction since we don't need to worry about alignment
+      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
+
+      __mi result = cross_advance();
+
+      // Need to convert result into a [0, 1) float
+      // bit shift 9 to the right to get rid of sign + 8 bit exponent
+      result = _mm::srli_epi32(result, 9);
+
+      // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
+      // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
+      // if we have 2^n = 1, then number = 1 + mantissa = [1, 2), 
+      // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
+      // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
+      // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
+      const __mi sign_exp_set = _mm::set1_epi32(0x3F800000);
+      result = _mm::xor_si(result, sign_exp_set);
+
+      // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
+      __m one = _mm::set1_ps(1.0f);
+      __m floats = _mm::sub_ps(_mm::castsi_ps(result), one);
+
+      _mm::store_si(reinterpret_cast<__mi*>(dst), reinterpret_cast<__mi>(floats));
    }
 };
