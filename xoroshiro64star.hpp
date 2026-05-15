@@ -288,8 +288,8 @@ Expect no benefits from vectorization.
 class alignas(InstructionSetTraits<SIMD_INSTRUCTION_SET>::bytes) XoroshiroRNG {
 private:
    using _mm = InstructionSetTraits<SIMD_INSTRUCTION_SET>;
-   using __m = _mm::__m;
-   using __mi = _mm::__mi;
+   using __m = _mm::__m;   // float
+   using __mi = _mm::__mi; // int
 public:
    constexpr static size_t REGISTER_BYTE_SIZE = _mm::bytes;
    constexpr static size_t ELEMENT_SIZE = sizeof(float);
@@ -318,24 +318,7 @@ public:
 
       __mi result = cross_advance();
 
-      // Need to convert result into a [0, 1) float
-      // bit shift 9 to the right to get rid of sign + 8 bit exponent
-      result = _mm::srli_epi32(result, 9);
-
-      // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
-      // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
-      // if we have 2^n = 1, then number = 1 + mantissa = [1, 2), 
-      // therefore [0, 1) = [1, 2) - 1 = 2^0 * (1 + mantissa)
-      // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
-      // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
-      const __mi sign_exp_set = _mm::set1_epi32(0x3F800000);
-      result = _mm::xor_si(result, sign_exp_set);
-
-      // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
-      __m one = _mm::set1_ps(1.0f);
-      __m floats = _mm::sub_ps(_mm::castsi_ps(result), one);
-
-      return std::bit_cast<std::array<float, BATCH_SIZE>>(floats);
+      return std::bit_cast<std::array<float, BATCH_SIZE>>(float_convert(result));
    }
 
    /**
@@ -376,6 +359,33 @@ public:
       std::memcpy(dst, &buffer, remainder_bytes);
    }
    
+   /**
+    * @brief Fill an array with floats
+    * 
+    * @param dst Start address, must be aligned to your SIMD register size
+    * @param num_elements Number of floats to fill it with 
+    */
+   void fill_aligned_float(float* dst, size_t num_elements) {
+      // This is necessary to do a faster load instruction since we don't need to worry about alignment
+      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
+
+      float* end = dst + num_elements;
+
+      // We want the aligned end to fill in batches until we reach that
+      size_t remainder_bytes = reinterpret_cast<uintptr_t>(end) % REGISTER_BYTE_SIZE;
+      float* aligned_end = end - remainder_bytes / sizeof(float);
+
+      // Fill all elements up to the SIMD registers boundary
+      for (; dst < aligned_end; dst += BATCH_SIZE) {
+         __mi result = cross_advance();
+         __m floats = float_convert(result);
+         _mm::store_si(reinterpret_cast<__mi*>(dst), reinterpret_cast<__mi>(floats));
+      }
+
+      // Now we have to fill the remainders
+      __m buffer = float_convert(cross_advance());
+      std::memcpy(dst, &buffer, remainder_bytes);
+   }
 
 private:
    // SOA style layout, BATCH_SIZE number of simultaneous RNGs, state split across 2 arrays
@@ -442,19 +452,16 @@ private:
    }
 
    /**
-    * @brief Get a batch of floats written into a given address
-    * 
-    * @param dst The destination, POINTER MUST BE ALIGNED TO YOUR SIMD REGISTER SIZE
-    */
-   void get_aligned_batch_floats(float* dst) {
-      // This is necessary to do a faster load instruction since we don't need to worry about alignment
-      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
-
-      __mi result = cross_advance();
-
+   * @brief Returns a conversion of given integers into floats
+   * 
+   * @param data 
+   * @return __m 
+   */
+   __m float_convert(__mi data) {
+      
       // Need to convert result into a [0, 1) float
       // bit shift 9 to the right to get rid of sign + 8 bit exponent
-      result = _mm::srli_epi32(result, 9);
+      data = _mm::srli_epi32(data, 9);
 
       // want this to be converted to [0, 1], want a leading 0 so its signed positive, 
       // for a floating point we know number = 2^n * (1 + mantissa), where mantissa = [0, 1)
@@ -463,12 +470,10 @@ private:
       // want n to equal 0, but n is found through subtracting exponent field by 127 in a float
       // so we want exponent field to be 127 so the computed estimate works to 2^(127 - 127) = 1
       const __mi sign_exp_set = _mm::set1_epi32(0x3F800000);
-      result = _mm::xor_si(result, sign_exp_set);
+      data = _mm::xor_si(data, sign_exp_set);
 
       // now we want to -1 to transform [1, 2) to [0, 1), reinterpreting our int bits as float bits
       __m one = _mm::set1_ps(1.0f);
-      __m floats = _mm::sub_ps(_mm::castsi_ps(result), one);
-
-      _mm::store_si(reinterpret_cast<__mi*>(dst), reinterpret_cast<__mi>(floats));
+      return _mm::sub_ps(_mm::castsi_ps(data), one);
    }
 };

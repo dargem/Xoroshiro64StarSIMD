@@ -114,5 +114,17 @@ int main(int argc, char** argv) {
         return sum;
     });
 
+    // alignas(decltype(simd)::REGISTER_BYTE_SIZE) std::array<float, 10> floats{};
+    // floats.fill(0.0f);
+    // for (uint32_t e : floats) {
+    //     std::cout << e << '\n';
+    // }
+
+    // simd.fill_aligned_float(floats.data(), 10);
+    // for (float e : floats) {
+    //     std::cout << e << '\n';
+    // }
+
+
     return 0;
 }
