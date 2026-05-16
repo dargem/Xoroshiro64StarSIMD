@@ -99,8 +99,6 @@ g++ -O3 -std=c++20 -mavx512f -flto -funroll-loops -fno-exceptions -fno-rtti \
     -march=native -fomit-frame-pointer benchmark.cpp -o benchmark && ./benchmark
 ```
 
-Surprisingly `-march=native` reduced performance consistently for the xor bench.
-
 Build and run example:
 
 ```bash
