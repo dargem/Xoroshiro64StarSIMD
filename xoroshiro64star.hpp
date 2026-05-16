@@ -480,3 +480,37 @@ private:
       return _mm::sub_ps(_mm::castsi_ps(data), one);
    }
 };
+
+class SequentialXoroshiroRNG {
+public:
+   SequentialXoroshiroRNG(uint32_t seed = 0xcafef00dU) 
+      : rng(seed), int_buffer(rng.get_batch_uint32()), float_buffer(rng.get_batch_floats())
+   {}
+
+   uint32_t get_uint32() {
+      if (int_idx == XoroshiroRNG::BATCH_SIZE) {
+         int_idx = 0;
+         int_buffer = rng.get_batch_uint32();
+      }
+
+      return int_buffer[int_idx++];
+   }
+
+   float get_float() {
+      if (float_idx == XoroshiroRNG::BATCH_SIZE) {
+         float_idx = 0;
+         float_buffer = rng.get_batch_floats();
+      }
+
+      return float_buffer[float_idx++];
+   }
+
+private:
+   XoroshiroRNG rng;
+   // We need to be aware at a given time whether the buffer is filled with ints or floats
+   // So we unfortunately need to use 2 buffers to avoid branching on accesses
+   std::array<uint32_t, XoroshiroRNG::BATCH_SIZE> int_buffer;
+   std::array<float, XoroshiroRNG::BATCH_SIZE> float_buffer;
+   uint8_t int_idx{};
+   uint8_t float_idx{};
+};

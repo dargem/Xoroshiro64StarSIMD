@@ -107,12 +107,23 @@ int main(int argc, char** argv) {
     ScalarXoroshiro64Star scalar;
 
     XoroshiroRNG simd;
+
+    SequentialXoroshiroRNG sequential;
+
     constexpr size_t kBatch = decltype(simd)::BATCH_SIZE;
 
     auto scalarXOR = [&] {
         uint64_t checksum = 0;
         for (uint64_t i = 0; i < NUM_XOR; ++i) {
             checksum ^= static_cast<uint64_t>(scalar.next_u32());
+        }
+        return checksum;
+    };
+
+    auto sequentialXOR = [&] {
+        uint64_t checksum = 0;
+        for (uint64_t i = 0; i < NUM_XOR; ++i) {
+            checksum ^= static_cast<uint64_t>(sequential.get_uint32());
         }
         return checksum;
     };
@@ -164,7 +175,7 @@ int main(int argc, char** argv) {
     };
 
     constexpr size_t xor_rounds = 30;
-    bench(NUM_XOR, std::array<std::string_view, 2>{"scalar(xor)", "simd(xor)"}, xor_rounds, scalarXOR, simdXOR);
+    bench(NUM_XOR, std::array<std::string_view, 3>{"scalar(xor)", "sequential(xor)", "simd(xor)"}, xor_rounds, scalarXOR, sequentialXOR, simdXOR);
 
     alignas(XoroshiroRNG::REGISTER_BYTE_SIZE) std::array<uint32_t, NUM_ARRAY> arr{};
     arr.fill(0); // Make sure all the memory is mapped before filling
