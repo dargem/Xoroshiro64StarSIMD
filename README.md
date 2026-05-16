@@ -10,8 +10,10 @@ This repo provides:
 # Bench Results
 
 ```
-scalar(xor)       : 0.145751 s  (1372.21 M u32/s)
-simd(xor)         : 0.015848 s  (12620.11 M u32/s)
+scalar(xor)       : 0.141513 s  (1413.30 M u32/s) // Xoring
+simd(xor)         : 0.015503 s  (12900.54 M u32/s)
+scalar(fill)      : 0.001250 s  (1599.57 M u32/s)
+simd(fill)        : 0.000161 s  (12455.47 M u32/s) // Array filling
 ```
 
 I note ~9.2x speedup in random number generation, my benchmark was generating numbers and xor-ing them with a checksum. More details below.

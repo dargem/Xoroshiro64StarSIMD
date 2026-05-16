@@ -9,7 +9,7 @@
 #include "xoroshiro64star.hpp"
 
 #define NUM_XOR 200000000
-#define NUM_ARRAY 200000
+#define NUM_ARRAY 2000000
 
 namespace {
 
@@ -43,11 +43,14 @@ struct BenchResult {
 };
 
 template <typename F>
-BenchResult bench(std::string_view name, uint64_t count, F&& f) {
+void bench(std::string_view name, uint64_t count, F&& f) {
     volatile uint64_t sink = 0;
 
+
     const auto start = Clock::now();
+    asm volatile("" ::: "memory");
     const uint64_t result = f();
+    asm volatile("" ::: "memory");
     const auto end = Clock::now();
 
     sink ^= result;
@@ -59,8 +62,6 @@ BenchResult bench(std::string_view name, uint64_t count, F&& f) {
               << std::right << std::fixed << std::setprecision(6) << seconds << " s"
               << "  (" << std::setprecision(2) << (static_cast<double>(count) / seconds / 1e6) << " M u32/s)"
               << "\n";
-
-    return BenchResult{.checksum = static_cast<uint64_t>(sink), .seconds = seconds, .count = count};
 }
 
 } // namespace
@@ -79,7 +80,7 @@ int main(int argc, char** argv) {
     XoroshiroRNG simd;
     constexpr size_t kBatch = decltype(simd)::BATCH_SIZE;
 
-    const auto scalarResult = bench("scalar(xor)", NUM_XOR, [&] {
+    bench("scalar(xor)", NUM_XOR, [&] {
         uint64_t checksum = 0;
         for (uint64_t i = 0; i < NUM_XOR; ++i) {
             checksum ^= static_cast<uint64_t>(scalar.next_u32());
@@ -87,7 +88,7 @@ int main(int argc, char** argv) {
         return checksum;
     });
 
-    const auto simdResult = bench("simd(xor)", NUM_XOR, [&] {
+    bench("simd(xor)", NUM_XOR, [&] {
         uint64_t checksum = 0;
 
         const uint64_t fullBatches = NUM_XOR / kBatch;
@@ -137,21 +138,17 @@ int main(int argc, char** argv) {
     arr.fill(0); // Make sure all the memory is mapped before filling
     asm volatile("" ::: "memory");
 
-    const auto scalarFill = bench("scalar(fill)", NUM_ARRAY, [&]{
+    bench("scalar(fill)", NUM_ARRAY, [&]{
         for (size_t i{}; i < NUM_ARRAY; ++i) {
             arr[i] = scalar.next_u32();
         }
         return 0;
     });
 
-    const auto vectorFill = bench("simd(fill)", 1000000, [&]{
+    bench("simd(fill)", NUM_ARRAY, [&]{
         simd.fill_aligned_uint32(arr.data(), NUM_ARRAY);
         return 0;
     });
-
-
-    (void) scalarResult;
-    (void) simdResult;
 
     return 0;
 }
