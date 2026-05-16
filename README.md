@@ -77,7 +77,7 @@ int main() {
 
 `benchmark.cpp` compares a scalar xoroshiro64\* loop against the SIMD batch API.
 
-The benchmark noted above was compiled on a AMD Ryzen 7 260 (zen 4 architecture). It only has 256 bit SIMD registers but supports the AVX512 instruction set. It does this by double pumping the 256 bit vector register, so it 2 cycles for an operation but its generally the same speed or faster than 2 separate 256 bit instructions. On a CPU with true 512 bit vector registers the simd version will have a greater advantage, and for a older CPU not support AVX2 the benefit would be less significant. Benchmark was compiled with `g++ -O3 -std=c++20 -mavx512f -flto -funroll-loops -f no-exceptions -fno-rtti -ffast-math -fomit-frame-pointer benchmark.cpp -o benchmark && ./benchmark 200000000`. Surprisingly `-march=native` reduced performance consistently though it was still ~6.8x faster.
+The benchmark noted above was compiled on a AMD Ryzen 7 260 (zen 4 architecture). It only has 256 bit SIMD registers but supports the AVX512 instruction set. It does this by double pumping the 256 bit vector register, so it 2 cycles for an operation but its generally the same speed or faster than 2 separate 256 bit instructions. On a CPU with true 512 bit vector registers the simd version will have a greater advantage, and for a older CPU not support AVX2 the benefit would be less significant. Benchmark was compiled with `g++ -O3 -std=c++20 -mavx512f -flto -funroll-loops -fno-exceptions -fno-rtti -ffast-math -fomit-frame-pointer benchmark.cpp -o benchmark && ./benchmark 200000000`. Surprisingly `-march=native` reduced performance consistently though it was still ~6.8x faster.
 
 Build and run (AVX2 example):
 

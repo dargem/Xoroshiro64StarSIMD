@@ -8,6 +8,9 @@
 
 #include "xoroshiro64star.hpp"
 
+#define NUM_XOR 200000000
+#define NUM_ARRAY 200000
+
 namespace {
 
 using Clock = std::chrono::steady_clock;
@@ -33,29 +36,21 @@ struct ScalarXoroshiro64Star {
     }
 };
 
-static uint64_t parse_u64_or(const char* s, uint64_t fallback) {
-    if (s == nullptr || *s == '\0') return fallback;
-    char* end = nullptr;
-    const auto v = std::strtoull(s, &end, 10);
-    if (end == s || *end != '\0') return fallback;
-    return static_cast<uint64_t>(v);
-}
-
 struct BenchResult {
     uint64_t checksum = 0;
     double seconds = 0.0;
     uint64_t count = 0;
 };
 
-template <class F>
+template <typename F>
 BenchResult bench(std::string_view name, uint64_t count, F&& f) {
     volatile uint64_t sink = 0;
 
     const auto start = Clock::now();
-    const uint64_t checksum = f();
+    const uint64_t result = f();
     const auto end = Clock::now();
 
-    sink ^= checksum;
+    sink ^= result;
 
     const std::chrono::duration<double> elapsed = end - start;
     const double seconds = elapsed.count();
@@ -63,7 +58,6 @@ BenchResult bench(std::string_view name, uint64_t count, F&& f) {
     std::cout << std::left << std::setw(18) << name << ": "
               << std::right << std::fixed << std::setprecision(6) << seconds << " s"
               << "  (" << std::setprecision(2) << (static_cast<double>(count) / seconds / 1e6) << " M u32/s)"
-              << "  checksum=" << checksum
               << "\n";
 
     return BenchResult{.checksum = static_cast<uint64_t>(sink), .seconds = seconds, .count = count};
@@ -72,29 +66,32 @@ BenchResult bench(std::string_view name, uint64_t count, F&& f) {
 } // namespace
 
 int main(int argc, char** argv) {
-    const uint64_t count = (argc >= 2) ? parse_u64_or(argv[1], 100000000ull) : 100000000ull;
+    std::cout << "Benchmark generating\n";
 
-    std::cout << "Benchmark generating " << count << " uint32 values\n";
-    std::cout << "(Compile with -O3 and AVX2 enabled for SIMD path, e.g. -mavx2)\n\n";
+    // Warm up period
+    volatile uint32_t sink;
+    for (size_t i{}; i < 100000; ++i) {
+        sink *= (sink >> 5);
+    }
 
     ScalarXoroshiro64Star scalar;
 
     XoroshiroRNG simd;
     constexpr size_t kBatch = decltype(simd)::BATCH_SIZE;
 
-    const auto scalarResult = bench("scalar(xor)", count, [&] {
+    const auto scalarResult = bench("scalar(xor)", NUM_XOR, [&] {
         uint64_t checksum = 0;
-        for (uint64_t i = 0; i < count; ++i) {
+        for (uint64_t i = 0; i < NUM_XOR; ++i) {
             checksum ^= static_cast<uint64_t>(scalar.next_u32());
         }
         return checksum;
     });
 
-    const auto simdResult = bench("simd(xor)", count, [&] {
+    const auto simdResult = bench("simd(xor)", NUM_XOR, [&] {
         uint64_t checksum = 0;
 
-        const uint64_t fullBatches = count / kBatch;
-        const uint64_t remainder = count % kBatch;
+        const uint64_t fullBatches = NUM_XOR / kBatch;
+        const uint64_t remainder = NUM_XOR % kBatch;
 
 #if defined(__AVX512F__)
         __m512i acc = _mm512_setzero_si512();
@@ -126,7 +123,6 @@ int main(int argc, char** argv) {
             for (uint32_t x : v) checksum ^= static_cast<uint64_t>(x);
         }
 #endif
-
         if (remainder != 0) {
             const auto v = simd.get_batch_uint32();
             for (uint64_t j = 0; j < remainder; ++j) {
@@ -136,6 +132,23 @@ int main(int argc, char** argv) {
 
         return checksum;
     });
+
+    alignas(XoroshiroRNG::REGISTER_BYTE_SIZE) std::array<uint32_t, NUM_ARRAY> arr{};
+    arr.fill(0); // Make sure all the memory is mapped before filling
+    asm volatile("" ::: "memory");
+
+    const auto scalarFill = bench("scalar(fill)", NUM_ARRAY, [&]{
+        for (size_t i{}; i < NUM_ARRAY; ++i) {
+            arr[i] = scalar.next_u32();
+        }
+        return 0;
+    });
+
+    const auto vectorFill = bench("simd(fill)", 1000000, [&]{
+        simd.fill_aligned_uint32(arr.data(), NUM_ARRAY);
+        return 0;
+    });
+
 
     (void) scalarResult;
     (void) simdResult;
