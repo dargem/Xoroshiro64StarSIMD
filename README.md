@@ -86,7 +86,7 @@ int main() {
 
 ## Benchmarking Details
 
-`benchmark.cpp` compares a scalar xoroshiro64\* loop against the SIMD batch API.
+`benchmark.cpp` compares a scalar xoroshiro64\* loop against the SIMD batch API and its buffered/sequential version.
 
 The benchmark noted above was compiled on a AMD Ryzen 7 260 (zen 4 architecture). It only has 256 bit SIMD registers but supports the AVX512 instruction set. It does this by double pumping the 256 bit vector register, so it 2 cycles for an operation but its generally the same speed or faster than 2 separate 256 bit instructions.
 
@@ -109,9 +109,24 @@ g++ -O3 -std=c++20 -march=native -flto -funroll-loops \
 ./benchmark
 ```
 
-To target AVX-512, compile with something like `-mavx512f` (or just `-march=native` to just inform the compiler of your hardware).
+To target AVX-512, compile with something like `-mavx512f` (or just `-march=native` to just inform the compiler of your hardware). Compiling without it leaves no performance benefits but it works out to be the same speed as the original scalar impl.
+
+```
+xoroshiro64star.hpp:276:2: warning: #warning Being ran on a CPU that does not support any AVX instruction sets. Or it may have been compiled without targeting your architecture (flags march native or specify mavx). Expect no benefits from vectorization. [-Wcpp]
+  276 | #warning Being ran on a CPU that does not support any AVX instruction sets. \
+      |  ^~~~~~~
+Benchmark generating
+scalar(xor)       : 0.415005 s  (1445.77 M u32/s)
+sequential(xor)   : 0.421408 s  (1423.80 M u32/s)
+simd(xor)         : 0.412483 s  (1454.61 M u32/s)
+scalar(fill)      : 0.122939 s  (1626.83 M u32/s)
+simd(fill)        : 0.123012 s  (1625.86 M u32/s)
+```
 
 ## Credits
 
 - xoroshiro64\* algorithm: David Blackman and Sebastiano Vigna.
 - SIMD implementation in this repo: see the header comment in `xoroshiro64star.hpp`.
+
+The original impl:
+https://prng.di.unimi.it/xoroshiro64star.c

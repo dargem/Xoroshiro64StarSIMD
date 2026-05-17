@@ -1,5 +1,5 @@
 /* Written in 2016 by David Blackman and Sebastiano Vigna (vigna@acm.org).
- * SIMD implementation produced by Tristan Dyson.
+ * SIMD implementation produced by me. https://github.com/dargem/Xoroshiro64StarSIMD.
 
 To the extent possible under law, the author has dedicated all copyright
 and related and neighboring rights to this software to the public domain
@@ -34,6 +34,9 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 /* This has been modified heavily, using the same algorithm but implemented 
    in C++ using SIMD intrinsics to leverage CPU level parallelism. 
    This is suitable for generating large quantities of floats */
+
+#ifndef XOROSHIRO_64_STAR_HPP
+#define XOROSHIRO_64_STAR_HPP
 
 #include <cstdint>
 #include <cstddef>
@@ -395,7 +398,11 @@ public:
       for (; dst < aligned_end; dst += BATCH_SIZE) {
          __mi result = advance();
          __m floats = float_convert(result);
-         _mm::store_si(reinterpret_cast<__mi*>(dst), (__mi)(floats));
+         if constexpr (SIMD_INSTRUCTION_SET != InstructionSet::NONE) {
+            _mm::store_si(reinterpret_cast<__mi*>(dst), std::bit_cast<__mi>(floats));
+         } else {
+            *dst = floats; // batch size = 1 so this is fine
+         }
       }
 
       if (remainder_bytes != 0) {
@@ -514,3 +521,5 @@ private:
    uint8_t int_idx{};
    uint8_t float_idx{};
 };
+
+#endif
