@@ -5,7 +5,7 @@ Header-only C++20 SIMD implementation of **xoroshiro64\*** (a fast small-state P
 This repo provides:
 - `XoroshiroRNG`, a vectorized generator that advances multiple xoroshiro64\* streams in parallel for:
     - Batch APIs returning `std::array<uint32_t, BATCH_SIZE>` or `std::array<float, BATCH_SIZE>`.
-    - Fill APIs for writing aligned output directly to memory.
+    - Fill APIs for writing output directly to SIMD aligned or 4 byte aligned memory.
 - `SequentialXoroshiroRNG`, a wrapper around the vectorized generator
     - Single element float/uint32_t generation through a refilling buffer
 
@@ -17,7 +17,7 @@ scalar(xor)       : 0.407096 s  (1473.85 M u32/s)  // ~3.28x faster
 sequential(xor)   : 0.263601 s  (2276.17 M u32/s)  // ~5.07x faster
 simd(xor)         : 0.058874 s  (10191.23 M u32/s) // ~22.7x faster
 
-mersenne(fill)    : 0.461094 s  (433.75 M u32/s)   // baseline
+mersenne(fill)    : 0.461094 s  (433.75 M u32/s)   // baseline for aligned fills
 scalar(fill)      : 0.126347 s  (1582.94 M u32/s)  // ~3.65x faster
 simd(fill)        : 0.019802 s  (10099.97 M u32/s) // ~23.3x faster
 ```
@@ -30,7 +30,7 @@ Very large speed improvements especially with the batch api, more details on mea
     - After this it performed slightly better on TestU01 passing the normal Crush.
     - Disable it if concerned by setting the default structural type on `advance()` to `false`.
 - The fill APIs use asserts to check memory is properly aligned, so this won't be checked on release builds.
-- Using `alignas` on a vector doesn't require its heap allocated resource to be aligned, so be wary of that.
+- Using `alignas` on a vector doesn't require its heap allocated resource to be SIMD aligned, so be wary of that.
 
 ## Requirements / Suggestions
 
@@ -69,13 +69,15 @@ int main() {
 }
 ```
 
-### Filling aligned buffers
+### Filling aligned and partially aligned buffers
 
 `fill_aligned_uint32()` and `fill_aligned_float()` require the destination pointer to be aligned to `XoroshiroRNG::REGISTER_BYTE_SIZE`.
+`fill_partial_aligned_uint32()` and `fill_partial_aligned_float()` require the destination pointer to be aligned to `sizeof(data_type)` aka 4 bytes.
 
 ```cpp
 #include "xoroshiro64star.hpp"
 #include <array>
+#include <vector>
 
 int main() {
     XoroshiroRNG rng;
@@ -84,6 +86,17 @@ int main() {
     std::array<uint32_t, 1024> out{};
 
     rng.fill_aligned_uint32(out.data(), out.size());
+
+    // alignas(XoroshiroRNG::REGISTER_BYTE_SIZE) does not require 
+    // its heap allocated resource to be aligned  using a fill_aligned 
+    // method is undefined behaviour and can cause out of bounds access
+    std::vector<uint32_t> out2{};
+    out2.resize(1024);
+
+    // There is a one time cost on each call to fill in memory until it reaches a SIMD address.
+    // Then it can do an aligned fill so overhead does not scale with size of data.
+    // Custom allocators can be used to allocate aligned memory for vectors if this is a concern.
+    rng.fill_partial_aligned_uint32(out2.data(), out2.size());
 }
 ```
 
