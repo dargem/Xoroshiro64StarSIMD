@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <iomanip>
 #include <iostream>
+#include <memory>
 #include <string_view>
 #include <tuple>
 #include <utility>
@@ -211,9 +212,6 @@ int main(int argc, char** argv) {
         }
         return 0;
     };
-
-    constexpr size_t fill_rounds = 100;
-    bench(NUM_ARRAY, std::array<std::string_view, 3>{"mersenne(fill)", "scalar(fill)", "simd(fill)"}, fill_rounds, mersenneFill, scalarFill, simdFill);
-
+    
     return 0;
 }
