@@ -445,6 +445,38 @@ public:
       }
    }
 
+   /**
+    * @brief Fill an array with floats
+    * Require partial alignment. Must be 4 byte aligned but it doesn't require it to be SIMD register size aligned.
+    * @param dst Start address
+    * @param num_elements Number of floats to fill it with 
+    */
+   void fill_partial_aligned_float(float* dst, size_t num_elements) {
+
+      // Doesn't need to be SIMD aligned but still needs to be 4 byte aligned
+      assert(reinterpret_cast<uintptr_t>(dst) % sizeof(float) == 0 && "destination must be 4 byte aligned");
+
+      // We want to fill until the next SIMD register aligned point, then we can just use an aligned fill
+      size_t bytes_needed = (REGISTER_BYTE_SIZE - reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE) % REGISTER_BYTE_SIZE;
+      size_t elements_needed_to_align = bytes_needed / sizeof(float);
+
+      if (num_elements <= elements_needed_to_align) {
+         // We only need to fill num_elements here then we can early return
+         __m buffer = float_convert(advance());
+         std::memcpy(dst, &buffer, num_elements * sizeof(float));
+         return;
+      }
+
+      if (bytes_needed != 0) {
+         __m buffer = float_convert(advance());
+         std::memcpy(dst, &buffer, bytes_needed);
+         dst += elements_needed_to_align; // We have now SIMD register aligned it
+      }
+
+      // dst is now aligned
+      fill_aligned_float(dst, num_elements - elements_needed_to_align);
+   }
+
 private:
    // SOA style layout, BATCH_SIZE number of simultaneous RNGs, state split across 2 arrays
    alignas(REGISTER_BYTE_SIZE) std::array<uint32_t, BATCH_SIZE> a_states;
