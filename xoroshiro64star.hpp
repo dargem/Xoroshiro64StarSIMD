@@ -410,10 +410,71 @@ public:
          dst += elements_needed_to_align; // We have now SIMD register aligned it
       }
 
-      // dst is now aligned
+      // dst is now aligned and we can delegate to fill_aligned
       fill_aligned_uint32(dst, num_elements - elements_needed_to_align);
    }
    
+   /**
+    * @brief Fill an array with int32_t's
+    * 
+    * @param dst Start address, must be aligned to your SIMD register size
+    * @param num_elements Number of int32_t's to fill it with 
+    */
+   void fill_aligned_int32(int32_t* dst, size_t num_elements) {
+      // This is necessary to do a faster load instruction since we don't need to worry about alignment
+      assert(reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE == 0 && "destination must be aligned to REGISTER_BYTE_SIZE");
+
+      int32_t* end = dst + num_elements;
+
+      // We want the aligned end to fill in batches until we reach that
+      size_t remainder_bytes = reinterpret_cast<uintptr_t>(end) % REGISTER_BYTE_SIZE;
+      int32_t* aligned_end = end - remainder_bytes / sizeof(int32_t);
+
+      // Fill all elements up to the SIMD registers boundary
+      for (; dst < aligned_end; dst += BATCH_SIZE) {
+         __mi result = advance();
+         _mm::store_si(reinterpret_cast<__mi*>(dst), result);
+      }
+
+      if (remainder_bytes != 0) {
+         // Now we have to fill the remainders if it exists
+         __mi buffer = advance();
+         std::memcpy(dst, &buffer, remainder_bytes);
+      }
+   }
+
+   /**
+    * @brief Fill an array with int32_t's
+    * Require partial alignment. Must be 4 byte aligned but doesn't require it to be SIMD register size aligned.
+    * @param dst Start address
+    * @param num_elements Number of int32_t's to fill it with 
+    */
+   void fill_partial_aligned_int32(int32_t* dst, size_t num_elements) {
+
+      // Doesn't need to be SIMD aligned but still needs to be 4 byte aligned
+      assert(reinterpret_cast<uintptr_t>(dst) % sizeof(int32_t) == 0 && "destination must be 4 byte aligned");
+
+      // We want to fill until the next SIMD register aligned point, then we can just use an aligned fill
+      size_t bytes_needed = (REGISTER_BYTE_SIZE - reinterpret_cast<uintptr_t>(dst) % REGISTER_BYTE_SIZE) % REGISTER_BYTE_SIZE;
+      size_t elements_needed_to_align = bytes_needed / sizeof(int32_t);
+
+      if (num_elements <= elements_needed_to_align) {
+         // We only need to fill num_elements here then we can early return
+         __mi buffer = advance();
+         std::memcpy(dst, &buffer, num_elements * sizeof(int32_t));
+         return;
+      }
+
+      if (bytes_needed != 0) {
+         __mi buffer = advance();
+         std::memcpy(dst, &buffer, bytes_needed);
+         dst += elements_needed_to_align; // We have now SIMD register aligned it
+      }
+
+      // dst is now aligned and we can delegate to fill_aligned
+      fill_aligned_int32(dst, num_elements - elements_needed_to_align);
+   }
+
    /**
     * @brief Fill an array with floats
     * 

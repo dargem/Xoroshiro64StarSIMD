@@ -4,10 +4,10 @@ Header-only C++20 SIMD implementation of **xoroshiro64\*** (a fast small-state P
 
 This repo provides:
 - `XoroshiroRNG`, a vectorized generator that advances multiple xoroshiro64\* streams in parallel for:
-    - Batch APIs returning `std::array<uint32_t, BATCH_SIZE>` or `std::array<float, BATCH_SIZE>`.
-    - Fill APIs for writing output directly to SIMD aligned or 4 byte aligned memory.
+    - Batch APIs generating float/uint32_t/int32_t arrays, e.g. `std::array<uint32_t, BATCH_SIZE>`.
+    - Fill APIs for writing output directly to SIMD (Vector Register) aligned or 4 byte aligned memory.
 - `SequentialXoroshiroRNG`, a wrapper around the vectorized generator
-    - Single element float/uint32_t generation through a refilling buffer
+    - Single element float/uint32_t/int32_t generation through a refilling buffer
 
 ## Bench Results
 
