@@ -52,7 +52,7 @@ Else it runs just a standard non vectorised version with `BATCH_SIZE = 1`, provi
 
 ## Usage
 
-Include the header and pull batches:
+Include the header and pull raw batches or scalar values:
 
 ```cpp
 #include "xoroshiro64star.hpp"
@@ -63,9 +63,20 @@ int main() {
     auto uints = batch_rng.get_batch_uint32();   // std::array<uint32_t, XoroshiroRNG::BATCH_SIZE>
     auto floats = batch_rng.get_batch_floats();   // std::array<float,    XoroshiroRNG::BATCH_SIZE> in [0, 1)
 
-    SequentialXoroshiroRNG sqn_rng(123u);
-    uint32_t u = sqn_rng.get_uint32();
-    float f = sqn_rng.get_float();
+    // The SequentialXoroshiroRNG can be templated with capabilities, which is the types it can generate. 
+    // Since it uses a different buffer for int/float if you don't want to pay the space cost of the floats
+    SequentialXoroshiroRNG<int32_t> int_generator;
+    int32_t sink = int_generator.get_int32();
+
+    // Fails to compile, our generator does not support get float
+    // float f = int_generator.get_float(); 
+
+    SequentialXoroshiroRNG<int32_t, float> num_generator;
+    sink = num_generator.get_int32();
+    float f = num_generator.get_float(); // Works fine since they are both capabilities
+
+    std::cout << "sizeof int_gen: " << sizeof(int_generator) << '\n';
+    std::cout << "sizeof num_gen: " << sizeof(num_generator) << std::endl;
 }
 ```
 

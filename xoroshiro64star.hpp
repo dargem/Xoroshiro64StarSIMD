@@ -651,6 +651,7 @@ public:
       }
    }
 
+   [[nodiscard]]
    uint32_t get_uint32() requires OneOf<uint32_t, Capabilities...> {
       if (int_idx == XoroshiroRNG::BATCH_SIZE) {
          int_idx = 0;
@@ -660,6 +661,7 @@ public:
       return int_buf[int_idx++];
    }
 
+   [[nodiscard]]
    int32_t get_int32() requires OneOf<int32_t, Capabilities...> {
       if (int_idx == XoroshiroRNG::BATCH_SIZE) {
          int_idx = 0;
@@ -670,6 +672,7 @@ public:
       return std::bit_cast<int32_t>(int_buf[int_idx++]);
    }
 
+   [[nodiscard]]
    float get_float() requires OneOf<float, Capabilities...> {
       if (float_idx == XoroshiroRNG::BATCH_SIZE) {
          float_idx = 0;
@@ -686,7 +689,7 @@ private:
    using INT_IDX = std::conditional_t<OneOf<uint32_t, Capabilities...> || OneOf<int32_t, Capabilities...>, uint8_t, Empty<int32_t>>;
    using INT_BUFFER = std::conditional_t<OneOf<uint32_t, Capabilities...> || OneOf<int32_t, Capabilities...>, std::array<uint32_t, XoroshiroRNG::BATCH_SIZE>, Empty<int32_t>>;
 
-   using FLOAT_IDX = std::conditional_t<OneOf<uint8_t, Capabilities...>, uint8_t, Empty<float>>;
+   using FLOAT_IDX = std::conditional_t<OneOf<float, Capabilities...>, uint8_t, Empty<float>>;
    using FLOAT_BUFFER = std::conditional_t<OneOf<float, Capabilities...>, std::array<float, XoroshiroRNG::BATCH_SIZE>, Empty<float>>;
 
    INT_BUFFER int_buf; // 4 byte int buffer
