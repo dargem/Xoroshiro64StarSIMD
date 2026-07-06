@@ -45,6 +45,7 @@ IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE. */
 #include <immintrin.h>
 #include <cstring>
 #include <bit>
+#include <type_traits>
 
 enum class InstructionSet {
    NONE,
@@ -335,11 +336,22 @@ public:
     * @brief Get a batch of uint32_t's in an array container
     * The number of ints is the SIMD register size in bits / 32. 
     * AVX512 uses 512 bit registers, so batch size is 512 / 32 = 16.
-    * @return std::array<int, BATCH_SIZE> 
+    * @return std::array<uint32_t, BATCH_SIZE> 
     */
    [[nodiscard]]
    std::array<uint32_t, BATCH_SIZE> get_batch_uint32() {
       return std::bit_cast<std::array<uint32_t, BATCH_SIZE>>(advance());   
+   }
+
+   /**
+    * @brief Get a batch of int32_t's in an array container
+    * The number of ints is the SIMD register size in bits / 32. 
+    * AVX512 uses 512 bit registers, so batch size is 512 / 32 = 16.
+    * @return std::array<int32_t, BATCH_SIZE> 
+    */
+   [[nodiscard]]
+   std::array<int32_t, BATCH_SIZE> get_batch_int32() {
+      return std::bit_cast<std::array<int32_t, BATCH_SIZE>>(advance());   
    }
 
    /**
@@ -614,38 +626,73 @@ private:
    }
 };
 
+template <typename Term, typename... Set>
+concept OneOf = (std::same_as<Term, Set> || ...);
+
+namespace {
+template <typename ID>
+class Empty{};
+}
+
+template <typename... Capabilities>
+   requires (OneOf<Capabilities, uint32_t, int32_t, float> && ...)
 class SequentialXoroshiroRNG {
 public:
    SequentialXoroshiroRNG(uint32_t seed = 0xcafef00dU) 
-      : rng(seed), int_buffer(rng.get_batch_uint32()), float_buffer(rng.get_batch_floats())
-   {}
-
-   uint32_t get_uint32() {
-      if (int_idx == XoroshiroRNG::BATCH_SIZE) {
-         int_idx = 0;
-         int_buffer = rng.get_batch_uint32();
+      : rng(seed)
+   {
+      // Our arrays are initially "full", when we need a batch we get one lazily
+      if constexpr (std::is_integral_v<decltype(int_idx)>) {
+         int_idx = XoroshiroRNG::BATCH_SIZE;
       }
 
-      return int_buffer[int_idx++];
+      if constexpr (std::is_integral_v<decltype(float_idx)>) {
+         float_idx = XoroshiroRNG::BATCH_SIZE;
+      }
    }
 
-   float get_float() {
-      if (float_idx == XoroshiroRNG::BATCH_SIZE) {
-         float_idx = 0;
-         float_buffer = rng.get_batch_floats();
+   uint32_t get_uint32() requires OneOf<uint32_t, Capabilities...> {
+      if (int_idx == XoroshiroRNG::BATCH_SIZE) {
+         int_idx = 0;
+         int_buf = rng.get_batch_uint32();
       }
 
-      return float_buffer[float_idx++];
+      return int_buf[int_idx++];
+   }
+
+   int32_t get_int32() requires OneOf<int32_t, Capabilities...> {
+      if (int_idx == XoroshiroRNG::BATCH_SIZE) {
+         int_idx = 0;
+         int_buf = rng.get_batch_uint32();
+      }
+
+      // Don't really need a bitcast but its more explicit
+      return std::bit_cast<int32_t>(int_buf[int_idx++]);
+   }
+
+   float get_float() requires OneOf<float, Capabilities...> {
+      if (float_idx == XoroshiroRNG::BATCH_SIZE) {
+         float_idx = 0;
+         float_buf = rng.get_batch_floats();
+      }
+
+      return float_buf[float_idx++];
    }
 
 private:
    XoroshiroRNG rng;
-   // We need to be aware at a given time whether the buffer is filled with ints or floats
-   // So we unfortunately need to use 2 buffers to avoid branching on accesses
-   std::array<uint32_t, XoroshiroRNG::BATCH_SIZE> int_buffer;
-   std::array<float, XoroshiroRNG::BATCH_SIZE> float_buffer;
-   uint8_t int_idx{};
-   uint8_t float_idx{};
+
+   // uint32_t and int32_t can share a buffer
+   using INT_IDX = std::conditional_t<OneOf<uint32_t, Capabilities...> || OneOf<int32_t, Capabilities...>, uint8_t, Empty<int32_t>>;
+   using INT_BUFFER = std::conditional_t<OneOf<uint32_t, Capabilities...> || OneOf<int32_t, Capabilities...>, std::array<uint32_t, XoroshiroRNG::BATCH_SIZE>, Empty<int32_t>>;
+
+   using FLOAT_IDX = std::conditional_t<OneOf<uint8_t, Capabilities...>, uint8_t, Empty<float>>;
+   using FLOAT_BUFFER = std::conditional_t<OneOf<float, Capabilities...>, std::array<float, XoroshiroRNG::BATCH_SIZE>, Empty<float>>;
+
+   INT_BUFFER int_buf; // 4 byte int buffer
+   FLOAT_BUFFER float_buf;
+   INT_IDX int_idx;
+   FLOAT_IDX float_idx;
 };
 
 #endif

@@ -109,7 +109,7 @@ int main(int argc, char** argv) {
 
     XoroshiroRNG simd;
 
-    SequentialXoroshiroRNG sequential;
+    SequentialXoroshiroRNG<uint32_t> sequential;
 
     std::mt19937 mersenne(123u);
     std::uniform_int_distribution<uint32_t> uint_dist{};
